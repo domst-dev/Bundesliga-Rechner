@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Emils Bundesliga-Tabellenrechner</title>
+  <style>
+    :root {
+      --primary-color: #e10600;
+      --bg-color: #121212;
+      --card-bg: #1e1e1e;
+      --text-color: #f0f0f0;
+      --border-color: #333;
+    }
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: var(--primary-color);
+      font-size: 2rem;
+    }
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    nav button, nav input[type=file] {
+      background: none;
+      border: none;
+      color: var(--text-color);
+      padding: 10px 15px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    nav button.active, nav button:hover {
+      color: var(--primary-color);
+    }
+    .tab {
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: var(--primary-color);
+      color: #fff;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+    }
+    tr:nth-child(even) { background-color: #2a2a2a; }
+    tr:hover { background-color: #333; }
+    select, input[type=number], button {
+      background-color: var(--primary-color);
+      border: none;
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+    input[type=number] { width: 60px; }
+    #save-btn {
+      margin-top: 20px;
+      float: right;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Emils Bundesliga-Tabellenrechner</h1>
+    <nav>
+      <div>
+        <button id="tab-results-btn" class="active">Ergebnisse</button>
+        <button id="tab-table-btn">Tabelle</button>
+      </div>
+      <div>
+        <input type="file" id="load-file" accept=".json" title="Ergebnisse importieren">
+      </div>
+    </nav>
+
+    <!-- Ergebnisse Tab -->
+    <div id="tab-results" class="tab">
+      <label for="md-select">Spieltag:</label>
+      <select id="md-select"></select>
+      <table id="results-table">
+        <thead>
+          <tr>
+            <th>Heim</th><th>Gast</th><th>Tore Heim</th><th>Tore Gast</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button id="save-btn">Speichern</button>
+    </div>
+
+    <!-- Tabelle Tab -->
+    <div id="tab-table" class="tab hidden">
+      <h2>Bundesliga-Tabelle</h2>
+      <table id="standings-table">
+        <thead>
+          <tr>
+            <th>Pl</th><th>Team</th><th>Sp</th><th>S</th><th>U</th><th>N</th>
+            <th>GF</th><th>GA</th><th>Diff</th><th>Pkte</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // === Konfiguriere hier deine 18 Bundesligisten: ===
+    const teams = [
+      "Bayern München","Borussia Dortmund","Bayer Leverkusen","RB Leipzig",
+      "VfL Wolfsburg","Eintracht Frankfurt","SC Freiburg","Union Berlin",
+      "1. FC Köln","TSG Hoffenheim","Werder Bremen","1. FC Heidenheim",
+      "FC Augsburg","VfB Stuttgart","Borussia M'gladbach","VfL Bochum",
+      "SV Darmstadt 98","FC Schalke 04"
+    ];
+
+    // Round-Robin-Algorithmus für Hin- und Rückrunde
+    function generateSchedule(teams) {
+      const t = teams.slice();
+      if (t.length % 2) t.push(null);  // Bye, falls ungerade
+      const rounds = t.length - 1;
+      const half = t.length / 2;
+      const schedule = [];
+
+      for (let r = 0; r < rounds; r++) {
+        const pairs = [];
+        for (let i = 0; i < half; i++) {
+          const home = t[i], away = t[t.length - 1 - i];
+          if (home && away) pairs.push({ home, away });
+        }
+        schedule.push(pairs);
+        // rotiere außer t[0]
+        t.splice(1, 0, t.pop());
+      }
+      // Rückrunde mit getauschten Heim-Gast
+      const returnLeg = schedule.map(round =>
+        round.map(m => ({ home: m.away, away: m.home }))
+      );
+      return schedule.concat(returnLeg);
+    }
+
+    const schedule = generateSchedule(teams);
+    let resultsData = {};
+
+    // DOM-Elemente
+    const mdSelect = document.getElementById('md-select');
+    const resultsTbody = document.querySelector('#results-table tbody');
+    const standingsTbody = document.querySelector('#standings-table tbody');
+    const tabResults = document.getElementById('tab-results');
+    const tabTable   = document.getElementById('tab-table');
+    const btnResults = document.getElementById('tab-results-btn');
+    const btnTable   = document.getElementById('tab-table-btn');
+    const fileInput  = document.getElementById('load-file');
+
+    // Spieltage im Dropdown
+    schedule.forEach((_, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `Spieltag ${i+1}`;
+      mdSelect.appendChild(opt);
+    });
+    mdSelect.addEventListener('change', renderResultsTable);
+
+    // Datei-Import
+    fileInput.addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = evt => {
+        try {
+          resultsData = JSON.parse(evt.target.result);
+          renderResultsTable();
+          renderStandings();
+        } catch {
+          alert('Fehler beim Einlesen der Datei.');
+        }
+      };
+      r.readAsText(f);
+    });
+
+    // Ergebnisse rendern
+    function renderResultsTable() {
+      const md = mdSelect.value;
+      const matches = schedule[md];
+      resultsTbody.innerHTML = '';
+      matches.forEach((m, idx) => {
+        const tr = document.createElement('tr');
+        const stored = (resultsData[md]||[])[idx] || {};
+        tr.innerHTML = `
+          <td>${m.home}</td>
+          <td>${m.away}</td>
+          <td><input type="number" min="0" data-idx="${idx}" data-home value="${stored.homeGoals||''}"></td>
+          <td><input type="number" min="0" data-idx="${idx}" data-away value="${stored.awayGoals||''}"></td>
+        `;
+        // Eingabe-Handler
+        tr.querySelectorAll('input').forEach(inp=>{
+          inp.addEventListener('input', ()=> {
+            const i = inp.dataset.idx;
+            const h = tr.querySelector('[data-home]').value;
+            const a = tr.querySelector('[data-away]').value;
+            resultsData[md] = resultsData[md]||[];
+            resultsData[md][i] = { homeGoals: +h, awayGoals: +a };
+            renderStandings();
+          });
+        });
+        resultsTbody.appendChild(tr);
+      });
+    }
+
+    // Tabelle rendern
+    function renderStandings() {
+      // Initialisiere Statistiken
+      const stats = {};
+      teams.forEach(t=> stats[t] = {
+        team: t, sp:0, w:0, d:0, l:0, gf:0, ga:0, pts:0
+      });
+
+      Object.values(resultsData).forEach((matches, md) => {
+        matches.forEach((r, idx) => {
+          const { home, away } = schedule[md][idx];
+          if (r.homeGoals==null || r.awayGoals==null) return;
+          const ha = stats[home], aa = stats[away];
+          ha.sp++; aa.sp++;
+          ha.gf += r.homeGoals; ha.ga += r.awayGoals;
+          aa.gf += r.awayGoals; aa.ga += r.homeGoals;
+          if (r.homeGoals > r.awayGoals) {
+            ha.w++; aa.l++;
+            ha.pts += 3;
+          } else if (r.homeGoals < r.awayGoals) {
+            aa.w++; ha.l++;
+            aa.pts += 3;
+          } else {
+            ha.d++; aa.d++;
+            ha.pts++; aa.pts++;
+          }
+        });
+      });
+
+      // Sortieren: Punkte → Tordiff → Tore
+      const table = Object.values(stats).sort((a,b)=>{
+        if (b.pts !== a.pts) return b.pts - a.pts;
+        const diffA = a.gf - a.ga, diffB = b.gf - b.ga;
+        if (diffB !== diffA) return diffB - diffA;
+        return b.gf - a.gf;
+      });
+
+      // Ausgabe
+      standingsTbody.innerHTML = '';
+      table.forEach((t,i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i+1}</td>
+          <td style="text-align:left">${t.team}</td>
+          <td>${t.sp}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td>
+          <td>${t.gf}</td><td>${t.ga}</td>
+          <td>${t.gf - t.ga}</td><td>${t.pts}</td>
+        `;
+        standingsTbody.appendChild(tr);
+      });
+    }
+
+    // Speichern als JSON
+    document.getElementById('save-btn').addEventListener('click', ()=>{
+      const dataStr = 'data:text/json;charset=utf-8,'+
+        encodeURIComponent(JSON.stringify(resultsData,null,2));
+      const a = document.createElement('a');
+      a.href = dataStr;
+      a.download = 'bl-results.json';
+      a.click();
+    });
+
+    // Tabs umschalten
+    btnResults.addEventListener('click', ()=>{
+      btnResults.classList.add('active');
+      btnTable.classList.remove('active');
+      tabResults.classList.remove('hidden');
+      tabTable.classList.add('hidden');
+    });
+    btnTable.addEventListener('click', ()=>{
+      btnTable.classList.add('active');
+      btnResults.classList.remove('active');
+      tabTable.classList.remove('hidden');
+      tabResults.classList.add('hidden');
+      renderStandings();
+    });
+
+    // Initialisierung
+    mdSelect.selectedIndex = 0;
+    renderResultsTable();
+  </script>
+</body>
+</html>
