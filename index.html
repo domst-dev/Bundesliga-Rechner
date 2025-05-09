@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#e10600">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Emils Bundesliga-Tabellenrechner</title>
@@ -312,6 +314,11 @@
     // Initialisierung
     mdSelect.selectedIndex = 0;
     renderResultsTable();
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('SW registriert:', reg.scope))
+        .catch(err => console.error('SW-Fehler:', err));
+    }
   </script>
 </body>
 </html>
